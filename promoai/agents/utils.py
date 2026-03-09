@@ -7,6 +7,8 @@ import re
 import pandas as pd
 from PIL import Image, ImageChops
 
+from promoai.general_utils import constants
+
 from promoai.model_generation.code_extraction import execute_code_and_get_variable
 
 
@@ -136,7 +138,8 @@ def code_extraction_report(code_snippet: str, args, valid_artifact_ids: list):
         )
 
     code = match.group(1).strip()
-    print(f"Extracted code:\n{code}")
+    if constants.ENABLE_PRINTS:
+        print(f"Extracted code:\n{code}")
     _check_whitelisted_libraries(code)
     _check_code_for_compilation(code)
 

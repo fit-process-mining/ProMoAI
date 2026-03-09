@@ -64,7 +64,7 @@ def engineer_node(
     )
     state["event_log"] = result
     state["log_abstraction"] = state.generate_log_abstraction()
-    state["messages_eng"].extend(messages)
+    state["messages_eng"] = messages
     return state, result, code
 
 
@@ -92,9 +92,7 @@ def update_message_for_analyst(last_request: str, context: str) -> str:
     return msg
 
 
-def generate_initial_message_for_analyst(
-    state: ProcessState, context, artifact_df_strings, artifact_viz_strings
-) -> str:
+def generate_initial_message_for_analyst(state: ProcessState, context) -> str:
     msg = f"""
     You are a process analyst.
 
@@ -106,6 +104,7 @@ def generate_initial_message_for_analyst(
 
     DATA SUMMARY:
     - Log Abstraction: {state['log_abstraction']}
+    - Additional Context: {context}
 
     TASK:
     Construct the `final_report` variable. Interleave your analysis with the relevant artifact keys (e.g., "artifact_0").
@@ -204,21 +203,20 @@ def analyst_node(state: ProcessState, LLMCredentials: LLMConnection) -> ProcessS
         else "No additional context available."
     )
     msg_history = state["messages_ana"]
-    if len(msg_history) == 0:
-        initial_msg = generate_initial_message_for_analyst(
-            state, context, artifact_df_strings, artifact_viz_strings
-        )
-        msg_history.append({"role": "system", "content": initial_msg})
-        msg_history.append({"role": "user", "content": state["user_request"][-1]})
-    else:
-        updated_msg = update_message_for_analyst(state["user_request"][-1], context)
-        additional_info = f"These are the artifacts that have been generated in the current iteration \
+    additional_info = f"These are the artifacts that have been generated in the current iteration \
         and are relevant to the user's request but have not been included in the previous report: \n \n \
         {artifact_df_strings} \n\n  \
         {artifact_viz_strings} \n\n \
         Recall the user request: {state['user_request'][-1]} \n\n "
+
+    if len(msg_history) == 0:
+        initial_msg = generate_initial_message_for_analyst(state, context)
+        msg_history.append({"role": "system", "content": initial_msg})
+    else:
+        updated_msg = update_message_for_analyst(state["user_request"][-1], context)
         msg_history.append({"role": "user", "content": updated_msg})
-        msg_history.append({"role": "user", "content": additional_info})
+
+    msg_history.append({"role": "user", "content": additional_info})
 
     valid_artifact_ids = list(artifact_id_to_description_and_content.keys())
     partial_function = partial(
@@ -251,7 +249,7 @@ def analyst_node(state: ProcessState, LLMCredentials: LLMConnection) -> ProcessS
                 entry["content"] = artifact_id_to_filepath[key]
             else:
                 raise ValueError(f"Key {key} not found.")
-    state["messages_ana"].extend(messages)
+    state["messages_ana"] = messages
     state["final_report"] = postprocessed_report
     state.flush_context()
     return state

@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+from typing import Tuple
 
 import pandas as pd
 import pm4py
@@ -20,6 +21,7 @@ class PM4PYWrapper:
         # ==== Load event log ==== #
         self.event_log = state["event_log"]
         # ========================= #
+        self.pnet = None
         self.process_model = state.get("discovered_model", None)
         self.state = state
 
@@ -47,7 +49,6 @@ class PM4PYWrapper:
 
         4. Visualization:
             - api.save_pnet() -> Saves the discovered Petri net model if available in the state, returns nothing. \n
-            - api.save_dfg() -> Saves the Directly-Follows Graph (DFG) based on the event log in the state, returns nothing. \n
             - api.save_visualization(fig, description, data) -> Saves a given visualization figure with a description for context Additionally, add the data used for its generation.
                 Use this to save all kinds of visualizations, including generated via matplotlib, seaborn or plotly.
                 Additionally, make sure that you ALWAYS provide description to give context to the saved visualization, this will be used in the final report, as well as the data used for its generation in form of a dataframe/dictionary. \n
@@ -168,15 +169,6 @@ class PM4PYWrapper:
                 "No event log avaiable in the state to discover a process model. Cannot generate Petri net visualization."
             )
 
-    def save_dfg(self):
-        if self.state["event_log"] is not None:
-            pm4py.discover_dfg(self.state["event_log"])
-            self._add_context(f"DFG Visualization: {self.get_dfg_summary()}")
-        else:
-            raise ValueError(
-                "Event log is not available in the state. Cannot generate DFG visualization."
-            )
-
     # ===== Preprocessing Methods ===== #
     # --- STEP 1: PREPROCESSOR (Filtering) ---
     def filter_time_range(self, start_date: str, end_date: str):
@@ -205,11 +197,11 @@ class PM4PYWrapper:
 
     # ===== LLM-based Abstractions ===== #
 
-    def get_dfg_summary(self) -> str:
+    def get_dfg_summary(self):
         summary = pm4py.llm.abstract_dfg(self.event_log)
         return self._add_context(f"DFG Summary: {summary}")
 
-    def get_model_summary(self) -> str:
+    def get_model_summary(self):
         if self.pnet is None:
             # Discover the process model if not already done
             self.discover_process_model()
@@ -218,12 +210,12 @@ class PM4PYWrapper:
             f"Model Summary: {pm4py.llm.abstract_petri_net(net, im, fm)}"
         )
 
-    def get_variant_summary(self) -> str:
+    def get_variant_summary(self):
         return self._add_context(
             f"Variant Summary: {pm4py.llm.abstract_variants(self.event_log)}"
         )
 
-    def get_case_summary(self) -> str:
+    def get_case_summary(self):
         return self._add_context(
             f"Case Summary: {pm4py.llm.abstract_case(self.event_log)}"
         )
@@ -236,7 +228,7 @@ class PM4PYWrapper:
         self.pnet = (net, im, fm)
         self.state.save_model((net, im, fm))
 
-    def cc_alignments(self, net: PNet, im, fm) -> dict[float, float, float]:
+    def cc_alignments(self, net: PNet, im, fm) -> Tuple[float, float, float]:
         fitness = pm4py.conformance_diagnostics_alignments(self.event_log, net, im, fm)
         precision = pm4py.precision_alignments(self.event_log, net, im, fm)
         f1 = (
@@ -250,7 +242,7 @@ class PM4PYWrapper:
         )
         return (fitness, precision, f1)
 
-    def cc_token_based_replay(self, net: PNet, im, fm) -> dict[float, float, float]:
+    def cc_token_based_replay(self, net: PNet, im, fm) -> Tuple[float, float, float]:
         fitness = pm4py.conformance_diagnostics_token_based_replay(
             self.event_log, net, im, fm
         )

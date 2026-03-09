@@ -1,6 +1,7 @@
 import ast
 import re
 import traceback
+from typing import Dict, Optional
 
 
 def extract_final_python_code(response_text):
@@ -43,9 +44,11 @@ def extract_final_python_code(response_text):
         raise Exception("No Python code snippet found!")
 
 
-def execute_code_and_get_variable(code, variable_name, namespace={}):
+def execute_code_and_get_variable(
+    code, variable_name, namespace: Optional[Dict] = None
+):
     try:
-        local_vars = namespace.copy()
+        local_vars = (namespace or {}).copy()
         exec(code, globals(), local_vars)
         try:
             value = local_vars[variable_name]
