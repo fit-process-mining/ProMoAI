@@ -12,3 +12,4 @@ matplotlib
 xhtml2pdf
 plotly
 pillow
+cohere
