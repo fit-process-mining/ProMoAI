@@ -7,9 +7,9 @@ import re
 from typing import Any, Callable, List, Optional, Tuple, TypeVar
 
 import cohere  # per colleague change
-from google import genai  # per colleague change
 
 import requests
+from google import genai  # per colleague change
 
 from promoai.general_utils import constants
 
@@ -21,12 +21,21 @@ T = TypeVar("T")
 # ----------------------------------------------------------------------------
 # LLM Connection Class
 # ----------------------------------------------------------------------------
-class LLMConnection():
-    def __init__(self, api_key: str, llm_name: str, ai_provider: str, args: Optional[dict] = None):
+class LLMConnection:
+    def __init__(
+        self, api_key: str, llm_name: str, ai_provider: str, args: Optional[dict] = None
+    ):
         self.api_key = api_key
         self.llm_name = llm_name
         self.ai_provider = ai_provider
         self.args = args
+
+    def __repr__(self):
+        # To avoid injection attacks
+        return f"LLMConnection(api_key=HIDDEN, llm_name={self.llm_name}, ai_provider={self.ai_provider}, args={self.args})"
+
+    def __str__(self):
+        return self.__repr__()
 
 
 # -----------------------------------------------------------------------------
@@ -203,7 +212,7 @@ def query_llm(
     api_key: str,
     llm_name: str,
     ai_provider: str,
-    llm_args : Optional[dict] = None,
+    llm_args: Optional[dict] = None,
 ) -> str:
     if ai_provider == AIProviders.GOOGLE.value:
         return generate_response_with_history_google(conversation, api_key, llm_name)
@@ -272,7 +281,9 @@ def generate_result_with_error_handling(
                 + "This is the error"
                 f" message: {error_description}"
             )
-            conversation.append({"role": "user", "content": new_message, "type": "error"})
+            conversation.append(
+                {"role": "user", "content": new_message, "type": "error"}
+            )
 
     raise Exception(
         llm_name
@@ -305,10 +316,7 @@ def generate_response_with_history(
     """
     Generates a response from the LLM using the conversation history.
     """
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     messages_payload = [
         {"role": m["role"], "content": m["content"]} for m in conversation_history
@@ -316,7 +324,8 @@ def generate_response_with_history(
 
     payload = {"model": llm_name}
     if llm_args:
-        print(f"Using LLM args: {llm_args}")
+        if constants.ENABLE_PRINTS:
+            print(f"Using LLM args: {llm_args}")
         payload.update(llm_args)
     if use_responses_api:
         payload["input"] = messages_payload
@@ -384,18 +393,21 @@ def generate_response_with_history_google(
         api_key = api_key.strip()
         if not api_key:
             raise Exception("api key not provided")
-        
-        client = genai.Client(api_key=api_key)
 
+        client = genai.Client(api_key=api_key)
         system_instruction, contents = _to_gemini_contents_and_system(
             conversation_history
         )
-
-        response = client.models.generate_content(
-                model = google_model, contents = contents, system_instruction=system_instruction
-            ) if system_instruction else client.models.generate_content(
-                model = google_model, contents = contents
+        config = genai.types.GenerateContentConfig(
+            system_instruction=system_instruction,
+        )
+        response = (
+            client.models.generate_content(
+                model=google_model, contents=contents, config=config
             )
+            if system_instruction
+            else client.models.generate_content(model=google_model, contents=contents)
+        )
 
         try:
             return response.text  # type: ignore[attr-defined]

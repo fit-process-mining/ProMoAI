@@ -6,4 +6,9 @@ requests
 google-genai
 anthropic
 rustxes
-cohere
+tabulate
+seaborn
+matplotlib
+xhtml2pdf
+plotly
+pillow

@@ -4,11 +4,11 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - "promoai/__init__.py" 
+      - "promoai/__init__.py"
 
 permissions:
   contents: read
-  id-token: write  
+  id-token: write
 
 jobs:
   build-and-publish:

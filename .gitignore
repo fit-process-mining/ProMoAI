@@ -135,3 +135,4 @@ uv.lock
 .pre-commit-config.yaml
 
 .devcontainer/
+/temp/

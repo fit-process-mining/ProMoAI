@@ -89,7 +89,7 @@ def run_app():
             description = st.text_area(
                 "For **process modeling**, enter the process description:"
             )
-            
+
             submit_button = st.form_submit_button(label="Run")
             if submit_button:
                 try:

@@ -1,7 +1,7 @@
 import inspect
 from typing import List, Optional
 
-from promoai.prompting.shots import SHOTS, RESOURCE_AWARE_SHOTS
+from promoai.prompting.shots import RESOURCE_AWARE_SHOTS, SHOTS
 
 import_statement = "from promoai.model_generation.generator import ModelGenerator"
 
@@ -37,7 +37,7 @@ def add_role():
     return res
 
 
-def add_knowledge(resource_aware_discovery = False):
+def add_knowledge(resource_aware_discovery=False):
     prompt = (
         "Use the following knowledge about the POWL process modeling language:\n"
         "A POWL model is a hierarchical model. POWL models are recursively generated"
@@ -56,17 +56,24 @@ def add_knowledge(resource_aware_discovery = False):
         " variable 'final_model'. Do not try to execute the code, just return it. Assume the class ModelGenerator"
         " is properly implemented and can be imported using the import statement:"
         f" {import_statement}. ModelGenerator provides the functions"
-        " described below:\n")
-    prompt = (
-        prompt + " - activity(label) generates an activity. It takes 1 string arguments,"
-        " which is the label of the activity.\n"
-    ) if not resource_aware_discovery else (
-        prompt +
-        " - activity(label, pool, lane) generates an activity. It takes 3 string arguments,"
-        " which are the label of the activity, the pool name, and the lane name."
+        " described below:\n"
     )
     prompt = (
-        prompt + " - partial_order(dependencies) takes 1 argument, which is a list of tuples of submodels. These tuples"
+        (
+            prompt
+            + " - activity(label) generates an activity. It takes 1 string arguments,"
+            " which is the label of the activity.\n"
+        )
+        if not resource_aware_discovery
+        else (
+            prompt
+            + " - activity(label, pool, lane) generates an activity. It takes 3 string arguments,"
+            " which are the label of the activity, the pool name, and the lane name."
+        )
+    )
+    prompt = (
+        prompt
+        + " - partial_order(dependencies) takes 1 argument, which is a list of tuples of submodels. These tuples"
         " set the nodes of the partial order and specify the"
         " edges of the partial order (i.e., the sequential dependencies). The"
         " transitive closure of the added dependencies should conform with the irreflexivity"
@@ -120,6 +127,7 @@ def add_knowledge(resource_aware_discovery = False):
     )
     return prompt
 
+
 def add_knowledge_about_resources():
     return (
         "Additionally, consider the following knowledge about pools and lanes:\n"
@@ -135,8 +143,8 @@ def add_knowledge_about_resources():
         "**Important** If you have managed to identify at least one pool, you cannot use 'None' for other pools.\n"
         "This is valid for lanes as well.\n"
         "IMPORTANT: DO NOT assign names to pools and lanes using variables, e.g., university_pool = 'University'. Always use string literals IN THE FUNCTION CALLS, e.g., pool='University'.\n"
-
     )
+
 
 def add_process_description(process_description):
     return "This is the process description: " + process_description
@@ -189,7 +197,7 @@ def code_generation():
     )
 
 
-def add_few_shots(resource_aware_discovery = False):
+def add_few_shots(resource_aware_discovery=False):
     res = (
         "Please use few-shots learning. These are few illustrating shots extended with common errors that you"
         " should avoid for each example:\n"
@@ -209,7 +217,9 @@ def add_few_shots(resource_aware_discovery = False):
     return res + "\n"
 
 
-def create_model_generation_prompt(process_description: str, resource_aware_discovery: bool) -> str:
+def create_model_generation_prompt(
+    process_description: str, resource_aware_discovery: bool
+) -> str:
     prompt = add_role()
     if resource_aware_discovery:
         prompt = prompt + add_knowledge_about_resources()
@@ -224,8 +234,12 @@ def create_model_generation_prompt(process_description: str, resource_aware_disc
     return prompt
 
 
-def create_conversation(process_description: Optional[str], resource_aware_discovery: bool) -> List[dict[str:str]]:
-    prompt = create_model_generation_prompt(process_description, resource_aware_discovery=resource_aware_discovery)
+def create_conversation(
+    process_description: Optional[str], resource_aware_discovery: bool
+) -> List[dict[str:str]]:
+    prompt = create_model_generation_prompt(
+        process_description, resource_aware_discovery=resource_aware_discovery
+    )
     conversation = [{"role": "user", "content": f"{prompt}"}]
     return conversation
 
@@ -253,7 +267,10 @@ def cut_conversation(
     cut_convo = conversation[: pos + 1]
     # Ensure the last message is from the user and is not feedback
     while cut_convo:
-        if cut_convo[-1]["role"] != "user" or cut_convo[-1].get("type", "msg") == "error":
+        if (
+            cut_convo[-1]["role"] != "user"
+            or cut_convo[-1].get("type", "msg") == "error"
+        ):
             cut_convo.pop()
         else:
             break

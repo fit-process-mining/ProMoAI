@@ -1,6 +1,6 @@
+import ast
 import re
 import traceback
-import ast
 
 
 def extract_final_python_code(response_text):
@@ -43,9 +43,9 @@ def extract_final_python_code(response_text):
         raise Exception("No Python code snippet found!")
 
 
-def execute_code_and_get_variable(code, variable_name):
+def execute_code_and_get_variable(code, variable_name, namespace={}):
     try:
-        local_vars = {}
+        local_vars = namespace.copy()
         exec(code, globals(), local_vars)
         try:
             value = local_vars[variable_name]
@@ -143,4 +143,3 @@ def extract_resources_from_code(code):
 
     ActivityVisitor().visit(tree)
     return resources
-

@@ -9,7 +9,9 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE.txt" }
 authors = [
-  { name = "Humam Kourani", email = "humam.kourani@fit.fraunhofer.de" }
+  { name = "Humam Kourani", email = "humam.kourani@fit.fraunhofer.de" },
+  { name = "Anton Antonov", email = "anton.antonov@fit.fraunhofer.de" }
+
 ]
 keywords = ["process modeling", "business process management", "generative AI"]
 classifiers = [
@@ -22,7 +24,7 @@ classifiers = [
 dynamic = ["version", "dependencies"]
 
 [project.urls]
-"Repository" = "https://github.com/humam-kourani/ProMoAI"
+"Repository" = "https://github.com/fit-process-mining/ProMoAI"
 
 [tool.setuptools.packages.find]
 include = ["promoai*"]
