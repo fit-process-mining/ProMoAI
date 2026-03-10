@@ -61,24 +61,25 @@ class BPMNAnalyzer:
 
     def ask(self, query: str, selected_elements_json: str = None) -> str | None:
 
+        user_message = create_message(
+            query, role="user", model_abstraction=self.model_abstraction
+        )
+
         if selected_elements_json:
             selected_elements_query = f"\n \n The user has now exclusively selected the following elements of the BPMN model (represented as a json): {selected_elements_json}"
         else:
             selected_elements_query = f"\n \n The user has now selected no elements."
-        # remove last system messages containing previously selected elements
-        self._conversation = self._conversation[:2] + [m for m in self._conversation[2:] if m["role"] != "system"] 
+            
+        # Inject transient context (selected elements) without polluting the persistent conversation history
         system_message = create_message(message=selected_elements_query, role="system", model_abstraction=self.model_abstraction)
-        self._conversation.append(system_message)
-        
-        user_message_content = create_message(
-            query, role="user", model_abstraction=self.model_abstraction
-        )
-        self._conversation.append(user_message_content)
+        llm_messages = self._conversation + [system_message, user_message]
 
         self.last_response = query_llm(
-            conversation=self._conversation,
+            conversation=llm_messages,
             api_key=self.api_key,
             llm_name=self.ai_model,
             ai_provider=self.ai_provider,
         )
+        
+        self._conversation.append(user_message)
         self._conversation.append({"role": "assistant", "content": self.last_response})
