@@ -66,11 +66,10 @@ class BPMNAnalyzer:
         )
 
         if selected_elements_json:
-            selected_elements_query = f"\n \n The user has now exclusively selected the following elements of the BPMN model (represented as a json): {selected_elements_json}"
+            selected_elements_query = f"\n \n The user has exclusively selected the following elements of the BPMN model (represented as a json): {selected_elements_json}"
         else:
-            selected_elements_query = f"\n \n The user has now selected no elements."
+            selected_elements_query = f"\n \n The user has not selected any elements."
             
-        # Inject transient context (selected elements) without polluting the persistent conversation history
         system_message = create_message(message=selected_elements_query, role="system", model_abstraction=self.model_abstraction)
         llm_messages = self._conversation + [system_message, user_message]
 
