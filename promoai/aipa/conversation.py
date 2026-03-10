@@ -62,7 +62,6 @@ def create_process_model_representation(
     role: str = "system",
     xml_string: str = None,
     json_abstraction: str = None,
-    selected_elements_json: str = None,
 ) -> dict:
 
     if model_abstraction == "json":
@@ -88,12 +87,6 @@ def create_process_model_representation(
 
     else:
         raise Exception(f"Unknown model abstraction: {model_abstraction}")
-
-    if selected_elements_json:
-        message = (
-            message
-            + f"\n \n The user has selected the following elements of the BPMN model (represented as a json): {selected_elements_json}"
-        )
 
     abstraction_message = create_message(
         message, role=role, model_abstraction=model_abstraction
