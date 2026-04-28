@@ -141,6 +141,34 @@ class LLMProcessModelGenerator:
             output_filename=file_path,
             parameters={"encoding": encoding},
         )
+    
+    def edit_code(self, feedback : str, powl_model : TaggedPOWL, api_key: str, ai_model: str, ai_provider: str, llm_args: dict = None):
+        
+        init_conversation = create_conversation(None, resource_aware_discovery=False)
+        code = translate_powl_to_code(powl_model)
+        conversation = list(init_conversation)
+        conversation.append(
+            {
+                "role": "user",
+                "content": "I want to edit the process model. Here is the current code of the process model:\n\n" + code + "\n\nAnd here is my feedback for the edit:\n\n" + feedback,
+            }
+        )
+        effective_llm_args = dict(self.llm_args)
+        if llm_args:
+            effective_llm_args.update(llm_args)
+        if effective_llm_args:
+            effective_llm_args = self._ensure_trace_args(effective_llm_args)
+        code, self.process_model, self.conversation = generate_model(
+            conversation=conversation,
+            api_key=api_key,
+            llm_name=ai_model,
+            ai_provider=ai_provider,
+            llm_args=effective_llm_args or None,
+        )
+        self.llm_args = effective_llm_args
+        return code, self.get_petri_net()
+
+
 
 
 # def initialize(process_description: str | None, api_key: str, llm_name: str, ai_provider: str,

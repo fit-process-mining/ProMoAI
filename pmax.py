@@ -30,6 +30,76 @@ def get_active_artifact_session_dir() -> str | None:
         return agent_state["artifact_session_dir"]
     return st.session_state.get("artifact_session_dir")
 
+import os
+import pm4py
+from promoai.general_utils.artifact_store import (
+    create_analysis_session,
+    write_bytes_artifact,
+    append_manifest_entry,
+    create_managed_path,
+)
+
+def persist_uploaded_process_model(uploaded_file) -> tuple[str, str, tuple]:
+    artifact_session_dir = create_analysis_session("pmax")
+    file_bytes = uploaded_file.read()
+    file_extension = os.path.splitext(uploaded_file.name)[1].lower()
+
+    raw_model_path = write_bytes_artifact(
+        artifact_session_dir,
+        "inputs",
+        uploaded_file.name,
+        file_bytes,
+        description=f"uploaded_model_{uploaded_file.name}",
+        prefix="model_raw",
+    )
+    
+    append_manifest_entry(
+        artifact_session_dir,
+        category="inputs",
+        file_path=raw_model_path,
+        description="Uploaded raw process model file.",
+        artifact_type="uploaded_process_model",
+        extra={"original_name": uploaded_file.name, "size_bytes": len(file_bytes)},
+    )
+
+    if file_extension == ".pnml":
+        net, im, fm = pm4py.read_pnml(raw_model_path)
+    elif file_extension == ".bpmn":
+        bpmn_graph = pm4py.read_bpmn(raw_model_path)
+        net, im, fm = pm4py.convert_to_petri_net(bpmn_graph)
+    else:
+        try:
+            net, im, fm = pm4py.read_pnml(raw_model_path)
+        except:
+            raise ValueError(f"Unsupported model format: {file_extension}. Please upload .pnml or .bpmn")
+
+    normalized_model_path = create_managed_path(
+        artifact_session_dir,
+        "models",
+        "uploaded_model_normalized",
+        ".pnml",
+        prefix="model",
+    )
+    
+    pm4py.write_pnml(net, im, fm, normalized_model_path)
+    
+    model_summary = pm4py.llm.abstract_petri_net(net, im, fm)
+
+    append_manifest_entry(
+        artifact_session_dir,
+        category="models",
+        file_path=normalized_model_path,
+        description="Normalized Petri net snapshot.",
+        artifact_type="model_snapshot",
+        extra={
+            "format": "Petri Net",
+            "places": len(net.places),
+            "transitions": len(net.transitions),
+            "summary": model_summary
+        },
+    )
+
+    return artifact_session_dir, raw_model_path, (net, im, fm)
 
 def persist_uploaded_event_log(uploaded_file) -> tuple[str, str, pd.DataFrame]:
     artifact_session_dir = create_analysis_session("pmax")
@@ -251,6 +321,7 @@ def chat(llm_credentials: LLMConnection):
             st.session_state.agent_state = init_state(
                 user_request=prompt,
                 event_log=st.session_state["uploaded_log"],
+                process_model=st.session_state["uploaded_model"] if "uploaded_model" in st.session_state else None,
                 artifact_session_dir=artifact_session_dir,
                 source_log_path=st.session_state.get("uploaded_log_path"),
             )
@@ -367,9 +438,10 @@ def run_page():
 
         with st.form(key="model_gen_form"):
             st.markdown("### 🛠️ Agents Setup")
-            uploaded_log = st.file_uploader(
-                "For **using an agent**, upload an event log:",
-                type=["xes", "gz", "csv"],
+            uploaded_files = st.file_uploader(
+                "For **using an agent**, upload an event log. Additionally, you may also upload a process model (in PNML format). \n",
+                type=["xes", "gz", "csv", "pnml"],
+                accept_multiple_files=True,
                 max_upload_size=MAX_FILE_SIZE,
             )
             submission_button = st.form_submit_button(label="Start Analysis")
@@ -379,11 +451,21 @@ def run_page():
                         body="Please complete the setup on the main page!", icon="⚠️"
                     )
                     return
-                if uploaded_log is None:
+                if uploaded_files is None:
                     st.error(body="No file is selected!", icon="⚠️")
                     return
                 try:
-                    with st.spinner("Uploading and processing the event log..."):
+                    log_files = [f for f in uploaded_files if f.name.lower().endswith((".xes", ".gz", ".csv"))]
+                    if len(log_files) != 1:
+                        st.error("Please upload exactly one event log.")
+                        return
+                    model_files = [f for f in uploaded_files if f.name.lower().endswith(".pnml")]
+                    if len(model_files) > 1:
+                        st.error("Please upload at most one model.")
+                        return
+                    uploaded_log = log_files[0] if log_files else None
+                    model = model_files[0] if model_files else None
+                    with st.spinner("Uploading and processing the files..."):
                         (
                             artifact_session_dir,
                             raw_log_path,
@@ -396,7 +478,22 @@ def run_page():
                                 "artifact_session_dir"
                             ] = artifact_session_dir
                             st.session_state["setup_complete"] = True
-                            st.rerun()
+                    if model:
+                        with st.spinner("Uploading and processing the files..."):
+                            (
+                                artifact_session_dir,
+                                raw_model_path,
+                                model,
+                            ) = persist_uploaded_process_model(model)
+                            if "uploaded_model" not in st.session_state:
+                                st.session_state["uploaded_model"] = model
+                                st.session_state["uploaded_model_path"] = raw_model_path
+                                st.session_state[
+                                    "artifact_session_dir"
+                                ] = artifact_session_dir
+                                st.session_state["setup_complete"] = True
+                    st.rerun()
+                                
                 except Exception as e:
                     st.error(body=f"Error : {e}", icon="⚠️")
                     return

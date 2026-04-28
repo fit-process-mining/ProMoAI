@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Tuple
+from typing import Tuple, Union, Any
 
 import pandas as pd
 import pm4py
@@ -8,7 +8,6 @@ import powl
 from pm4py.objects import petri_net as PNet
 from pm4py.visualization.petri_net import visualizer as pn_visualizer
 from powl import convert_to_petri_net
-
 import promoai.agents.utils as utils
 from promoai.agents.state import ProcessState
 from promoai.agents.utils import transform_dataframe_for_llms
@@ -17,29 +16,61 @@ from promoai.general_utils.artifact_store import (
     create_managed_path,
 )
 from promoai.model_generation.code_extraction import execute_code_and_get_variable
+from promoai.general_utils.llm_connection import (
+    LLMConnection
+)
+from promoai.model_generation.llm_model_generator import LLMProcessModelGenerator
+from powl.conversion.to_powl.from_pn.converter import convert_workflow_net_to_powl 
 
+class LLMClient:
+    def __init__(self, credentials : LLMConnection):
+        self.credentials = credentials
+
+    def from_description(self, process_description):
+        api_key = self.credentials.api_key
+        llm = self.credentials.llm_name
+        provider = self.credentials.ai_provider
+        args = self.credentials.args
+        return LLMProcessModelGenerator.from_description(process_description, api_key, llm, provider, False, args)
+    
+    def from_pnet(self, pnet : Tuple[Any, Any, Any], description : str):
+        powl = convert_workflow_net_to_powl(pnet[0])
+        api_key = self.credentials.api_key
+        llm = self.credentials.llm_name
+        provider = self.credentials.ai_provider
+        args = self.credentials.args
+        _, pnet = LLMProcessModelGenerator(None, [], None).edit_code(feedback=description, powl_model = powl, api_key=api_key, ai_model=llm, ai_provider=provider, llm_args=args)
+
+        return pnet
 
 class PM4PYWrapper:
-    def __init__(self, state: ProcessState):
+    def __init__(self, state: ProcessState, client : Union[LLMClient, None]):
         # ==== Load event log ==== #
         self.event_log = state["event_log"]
+        self._initial_event_log = state["initial_event_log"]
+        self.client = client
         # used to detect potential leaks
         self._raw_column_fingerprints = {
             hash(tuple(sorted(self.event_log[col].astype(str).unique()))): col
             for col in self.event_log.columns
         }
         # ========================= #
-        self.pnet = None
-        self.process_model = state.get("discovered_model", None)
+        self.pnet = state.get("process_model", None)
+        self._initial_process_model = state.get("initial_process_model", None)
         self.state = state
-
+    @property
+    def initial_process_model(self):
+        return self._initial_process_model
+    @property
+    def initial_event_log(self):
+        return self._initial_event_log
     @staticmethod
     def get_API_summary() -> str:
         return """
         You have access to a variable `api` which is an instance of the Process Mining Preprocessing Engine.
 
         AVAILABLE METHODS:
-        1. Filtering (Updates the log in-place): \n
+        1. Filtering (Updates the current log in-place): \n
            - api.filter_time_range(start_date: str, end_date: str) -> "YYYY-MM-DD" \n
            - api.filter_attribute(column: str, value: str) \n
            - api.filter_pandas_query(query: str) -> e.g. "amount > 500" \n
@@ -50,14 +81,16 @@ class PM4PYWrapper:
            - api.get_variant_summary() -> Returns a summary (STRING) of the most common variants (unique sequences of activities) in the log. \n
            - api.get_case_summary() -> Returns a summary (STRING) of individual cases, including common patterns and outliers. \n
 
-        3. Mining & Analysis: \n
-           - api.discover_process_model() -> returns nothing, updates internal state with a discovered Petri net model based on the event log and saves visualization of it. \n
-           - api.cc_alignments() -> returns conformance checking results based on alignments, i.e., a tuple of fitness, precision, F1. \n
-           - api.cc_token_based_replay() -> returns conformance checking results based on token-based replay, i.e., a tuple of fitness, precision, F1. \n
+        3. Mining & Analysis:\n
+           - api.discover_process_model() -> works on ``api.event_log``, returns nothing, updates internal state, i.e., ``api.process_model`` with a discovered Petri net model based on the event log and saves visualization of it. \n
+           - api.cc_alignments(event_log, process_model) -> returns conformance checking results based on alignments, i.e., a tuple of fitness, precision, F1 using **the provided process model and event log**. \n
+           - api.cc_token_based_replay(event_log, process_model) -> returns conformance checking results based on token-based replay, i.e., a tuple of fitness, precision, F1 **using the provided event log and process model**. \n
+           - api.discover_from_text(description : str) -> saves a Petri net (process model) as ``api.process_model`` in state of a process described with text. \n
+           - api.edit_model(description : str) -> modifies the discovered process model (from text or data) solely using textual description and updates the saved process model. \n
         \n
         4. Visualization:
-            - api.save_pnet() -> Saves the discovered Petri net model as visualization for further analysis. \n
-            - api.save_dfg() -> Saves the Directly-Follows Graph as visualization for further analysis. \n
+            - api.save_pnet() -> Saves the discovered Petri net model (from ``api.process_model``) as visualization for further analysis. \n
+            - api.save_dfg() -> Saves the Directly-Follows Graph (using the current event log ``api.event_log``) as visualization for further analysis. \n
             - api.save_visualization(fig, description, data) -> Saves a given visualization figure with a description for context Additionally, add the data used for its generation. \n
                 Use this to save all kinds of visualizations, including generated via matplotlib, seaborn or plotly. \n
                 Additionally, make sure that you ALWAYS provide description to give context to the saved visualization, this will be used in the final report, as well as the data used for its generation in form of a dataframe/dictionary. \n
@@ -73,7 +106,8 @@ class PM4PYWrapper:
         - If you make use of other methods from allowed libraries apart from the provided api, make sure to include the necessary import statements in the generated code. \n
         - Always use the save_visualization method to save any visualization, built-in methods in matplotlib or seaborn are disabled. \n
         - Always use the save_dataframe method to save any dataframe, AVOID built-in methods in pandas. \n
-
+        - Whenever asked to edit a process model, use the `edit_model` method which takes a textual description of the required edit, and modifies the current process model solely based on the provided textual description. \n
+        - If `edit_model` fails, you can use the standard `discover_from_text` method but provide a detailed textual description of the original model (use abstraction method) and the required edit. \n
         """
 
     def _add_context(self, description: str):
@@ -82,20 +116,6 @@ class PM4PYWrapper:
     def _log_action(self, description: str):
         # Check if it already exists, if this is the case, then append it to a list
         self.state.log_action(description)
-
-    def __preprocess_pathway(self, file_name: str, type) -> str:
-        file_name = file_name.replace("..", "").replace("/", "").replace("\\", "")
-        format = file_name.split(".")[-1]
-
-        if format not in ["png", "pdf", "svg"] and type == "visualization":
-            raise ValueError(
-                "Unsupported file format. Please use one of the following: png, pdf, svg for images!"
-            )
-        if format not in ["csv", "parquet", "xes"] and type == "dataframe":
-            raise ValueError(
-                "Unsupported file format. Please use only csv for exporting dataframes!"
-            )
-        return file_name
 
     def save_dataframe(self, df: pd.DataFrame, description: str):
         if description is None or description.strip() == "":
@@ -188,9 +208,9 @@ class PM4PYWrapper:
         )
 
     def save_pnet(self):
-        if self.state["discovered_model"] is not None:
+        if self.state["process_model"] is not None:
             # export it using pm4py's built-in visualizer
-            net, im, fm = self.state["discovered_model"]
+            net, im, fm = self.state["process_model"]
             gviz = pn_visualizer.apply(net, im, fm)
             self.save_visualization(
                 gviz, "Discovered Petri Net", data=self.get_model_summary()
@@ -253,20 +273,42 @@ class PM4PYWrapper:
         return variant_summary
 
     def get_case_summary(self):
-        case_summary = pm4py.llm.abstract_case(self.event_log)
+        try:
+            case_summary = pm4py.llm.abstract_case(self.event_log)
+        except Exception as e:
+            raise Exception(f"The log should be preprocessed so that the standard attributes, i.e., case:concept:name (case id), concept:name (activity) and time:timestamp (timestamp) are present. Error details: {str(e)}")
         return case_summary
 
     # ===== Process Mining Algorithms ===== #
 
     def discover_process_model(self):
+        if self.event_log is None or len(self.event_log) == 0:
+            raise Exception("No event log available")
         self.powl = powl.discover(self.event_log)
         net, im, fm = convert_to_petri_net(self.powl)
         self.pnet = (net, im, fm)
         self.state.save_model((net, im, fm))
+    
+    def discover_from_text(self, description : str):
+        pnet = self.client.from_description(description).get_petri_net()
+        self.state.save_model(pnet)
+        self._log_action(f"Discovered process model from {description}")
 
-    def cc_alignments(self, net: PNet, im, fm) -> Tuple[float, float, float]:
-        fitness = pm4py.conformance_diagnostics_alignments(self.event_log, net, im, fm)
-        precision = pm4py.precision_alignments(self.event_log, net, im, fm)
+    def edit_model(self, description : str):
+        """
+        Modifies the current process model based on a textual description
+        """
+        if self.pnet is None:
+            try:
+                self.discover_process_model()
+            except Exception:
+                raise Exception("No process model is discovered, missing event log, discover from text first.")
+        self.state.save_model(self.client.from_pnet(self.pnet, description))
+        self._log_action(f"Edited process model using {description}")
+        
+    def cc_alignments(self, event_log, net, im, fm) -> Tuple[float, float, float]:
+        fitness = pm4py.conformance_diagnostics_alignments(event_log, net, im, fm)
+        precision = pm4py.precision_alignments(event_log, net, im, fm)
         f1 = (
             2 * (fitness * precision) / (fitness + precision)
             if (fitness + precision) > 0

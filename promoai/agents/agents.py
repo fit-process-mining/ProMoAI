@@ -1,11 +1,11 @@
 import copy
 from functools import partial
-from typing import Tuple
+from typing import Tuple, Any
 
 import pandas as pd
 import pm4py
 
-from promoai.agents.pm4py_wrapper import PM4PYWrapper
+from promoai.agents.pm4py_wrapper import PM4PYWrapper, LLMClient
 from promoai.agents.state import ProcessState
 from promoai.agents.utils import code_extraction_report
 from promoai.general_utils.artifact_store import (
@@ -87,12 +87,14 @@ def _persist_event_log_snapshot(
 def init_state(
     user_request: str,
     event_log,
+    process_model : str | None = None,
     artifact_session_dir: str | None = None,
     source_log_path: str | None = None,
 ) -> ProcessState:
     initial_state = ProcessState(
         user_request=user_request,
         event_log=event_log,
+        process_model = process_model,
         artifact_session_dir=artifact_session_dir,
         source_log_path=source_log_path,
     )
@@ -104,26 +106,46 @@ def engineer_node(
 ) -> Tuple[ProcessState, str, str]:
     # Initial state
     # 1. Construct Prompt
-    api = PM4PYWrapper(state)
+    client = LLMClient(LLMCredentials)
+    api = PM4PYWrapper(state, client)
     api_summary = api.get_API_summary()
 
+    # Helpers
+    has_log = state["event_log"] is not None and len(state["event_log"])
+    has_model = state["process_model"] is not None
+    log_context = f"- Log Structure: {state.get('log_abstraction', 'No log loaded.')}. \n The log is accessible via api.event_log" if has_log else "- Log Status: No event log has been provided yet."
+    model_context = f"- Initial Model's Structure: {state.get('model_abstraction', '')}. \n"
+    print(f"Model context: {model_context}")
     msg = f"""
-    You are a Process Mining Data Engineer.
+        You are a Process Mining Specialist and Data Engineer.
 
-    Your task is to preprocess the event log data according to the user's request, using the provided API methods and any necessary data manipulation with pandas or numpy.
-    {api_summary} \n
+        Your task is to handle the user's request by manipulating event data, analyzing process models, or aligning the two.
+        {api_summary} \n
 
-    DATA: \n
-    - Assume that the log is already loaded and accessible via api.event_log. \n
-    - Furthermore, the data has the following structure: {state['log_abstraction']} \n
-    - Activities should be stored in the 'concept:name' column, timestamps in 'time:timestamp', case identifier in 'case:concept:name'. \n
-    EXPECTED OUTPUT:
-    - Always return the final event log as `final_event_log` variable after any preprocessing steps, so it can be passed down to the subsequent agent.
+        CONTEXT:
+        {log_context} \n
+        {model_context} \n
 
-    IMPORTANT:
-    - If the previous code you generated is able to answer the user's new request without any modifications, just return the event log without any changes.
-    - MANDATORY PREPROCESSING: if the actvities or timestamps or case identifiers are not in the expected columns, you need to preprocess the log to ensure they are. You can use the API methods or pandas for this. Otherwise, you will trigger errors in the subsequent steps. \n
-    """
+        OPERATIONAL MODES:
+        1. DATA-DRIVEN: If an event log is present, you can filter, clean, or mine it.
+        - MANDATORY: Ensure 'concept:name', 'time:timestamp', and 'case:concept:name' are correctly mapped. 
+        2. MODEL-DRIVEN: If a model is present, use it for analysis. 
+        - STICKINESS RULE: If a model is already available in the CONTEXT, you MUST use it. 
+        - DO NOT call `api.discover_process_model()` if a model already exists unless the user specifically asks to "re-mine" or "generate a new model from data."
+        3. COMBINED: Use the existing model and log together (e.g., Conformance Checking) without replacing the existing model.
+
+        RULES:
+        - PRECEDENCE: A user-provided process model takes precedence. Always use `api.get_model_summary()` or `api.cc_alignments()` on the existing model rather than discovering a new one.
+        !!IMPORTANT!!: Calling discovery will delete the user's uploaded model.
+        - VARIABLE MAPPING: The log is at `api.event_log`. The current model is handled internally by the `api` methods and available via `api.process_model`.
+        - INITIAL INPUT: The initial event log is available as `api.initial_event_log` and should be used for any operations that require the original log state, e.g., restoring the log to its initial state. \n
+        The initial process model (e.g., the provided by user if any) is available as `api.initial_process_model` and should be used for any operations that require the original model state, e.g., comparing the current model with the initial one, restoring the model to its initial state, etc.
+        - RELEVANCE: If the previous code or current state already satisfies the request, do not perform redundant operations.
+
+        IMPORTANT:
+        - COLUMN MAPPING: If activities, timestamps, or IDs are not in standard columns, you MUST rename/preprocess them using pandas or `api.filter_pandas_query`.
+        - DESCRIPTIONS: Every `api.save_visualization` or `api.save_dataframe` call MUST include a meaningful, context-rich description string.
+    """    
     msg_history = (
         [
             {"role": "system", "content": msg},

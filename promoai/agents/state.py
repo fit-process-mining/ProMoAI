@@ -1,24 +1,35 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from pm4py.objects.log.obj import EventLog
+
+from pm4py.objects.petri_net.obj import Marking, PetriNet
 
 from promoai.general_utils.artifact_store import (
     append_manifest_entry,
     create_analysis_session,
 )
+import pandas as pd
+import pm4py
+from promoai.agents.utils import transform_dataframe_for_llms
+
 
 
 class ProcessState(dict):
     user_request: List[str]
 
     # ---- Data Objects ---- #
+
+    initial_event_log: EventLog
+
     event_log: EventLog
 
     previous_code: str
+    
+    initial_process_model: Union[Tuple[Any, Any, Any], None]
+
+    process_model : Union[Tuple[PetriNet, Marking, Marking], None]
     # --- Meta Data and Abstractions --- #
     log_abstraction: str
-
-    discovered_model: Tuple[Any, Any, Any]
 
     saved_artifacts: Dict[str, Any]
 
@@ -45,7 +56,8 @@ class ProcessState(dict):
     def __init__(
         self,
         user_request: str,
-        event_log: EventLog,
+        event_log: Union[EventLog, None],
+        process_model : Union[Tuple[Any, Any, Any], None],
         artifact_session_dir: str | None = None,
         source_log_path: str | None = None,
     ):
@@ -56,12 +68,15 @@ class ProcessState(dict):
                 "Event log cannot be None. Please provide a valid event log to initialize the ProcessState."
             )
         self["event_log"] = event_log
+        self["initial_event_log"] = event_log
         self["artifact_session_dir"] = artifact_session_dir or create_analysis_session(
             "pmax"
         )
+        self["process_model"] = process_model
+        self["initial_process_model"] = process_model
         self["source_log_path"] = source_log_path
         self["log_abstraction"] = self.generate_log_abstraction()
-        self["discovered_model"] = None
+        self["model_abstraction"] = self.generate_model_abstraction()
         self["saved_artifacts"] = {}
         self["context"] = []
         self["previous_code"] = ""
@@ -87,7 +102,7 @@ class ProcessState(dict):
             f"  user_request={self['user_request']},\n"
             f"  log_abstraction={self['log_abstraction']},\n"
             f"  extracted_statistics={self['extracted_statistics']},\n"
-            f"  discovered_model={'Available' if self['discovered_model'] else 'None'},\n"
+            f"  process_model={'Available' if self['process_model'] else 'N/A'},\n"
             f"  analysis_data={self['analysis_data']},\n"
             f"  log_actions={self['log_actions']},\n"
             f"  final_report={self['final_report'][:100]}..., \n"
@@ -98,12 +113,20 @@ class ProcessState(dict):
 
     def __repr__(self):
         return self.__str__()
+    
 
+    def generate_process_abstraction(self):
+        if self["process_model"] is None:
+            return "Missing process model."
+        msg = f"Process Model Abstraction:\n"
+        msg += pm4py.llm.abstract_petri_net(self["process_model"])
+        return msg
+        
     def generate_log_abstraction(self):
         df = self["event_log"]
 
         if df is None or len(df) == 0:
-            return "The event log is empty."
+            return "Missing event log."
 
         # Basic Stats
         msg = f"Event Log Abstraction:\n"
@@ -124,6 +147,17 @@ class ProcessState(dict):
             msg += f"  * '{col}' (Type: {col_type}): {sample_data}\n"
 
         return msg
+    
+    def generate_model_abstraction(self):
+        if self["process_model"] is None:
+            return None
+        msg = f"The initial process model looks like this:\n"
+        msg += pm4py.llm.abstract_petri_net(*self["process_model"])
+        return msg
+    
+    def inject_context_table(self, table : pd.DataFrame):
+        parsed_table = transform_dataframe_for_llms(table)
+        self.add_context(parsed_table)
 
     def add_context(self, description: str):
         self["context"].append(description)
@@ -135,7 +169,7 @@ class ProcessState(dict):
         self["log_actions"][key].append(description)
 
     def save_model(self, model: Tuple[Any, Any, Any]):
-        self["discovered_model"] = model
+        self["process_model"] = model
 
     def update_artifacts(self, pathway: str, artifact_description: Any, data: Any):
         self["saved_artifacts"][pathway] = (artifact_description, data)
