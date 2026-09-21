@@ -96,11 +96,11 @@ def sidebar_info():
         st.markdown(
             """
             <div class="sidebar-card">
-                <a class="sidebar-link" href="https://doi.org/10.48550/arXiv.2603.15351" target="_blank">
+                <a class="sidebar-link" href="https://doi.org/10.1007/978-3-032-28274-3_26" target="_blank">
                     <span style="font-size:1.2rem;">📄</span>
                     <div>
                         <span class="card-text-main">PMAx Paper</span>
-                        <span class="card-text-sub">Pre-Print</span>
+                        <span class="card-text-sub">EMMSAD 2026</span>
                     </div>
                 </a>
             </div>

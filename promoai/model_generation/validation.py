@@ -27,7 +27,9 @@ def validate_resource_structure(powl: TaggedPOWL):
 
 def validate_partial_orders_with_missing_transitive_edges(powl: TaggedPOWL):
     if isinstance(powl, PartialOrder):
-        if not powl.validate():
+        try:
+            powl.validate()
+        except Exception:
             raise Exception("A partial order must be a DAG!")
     if hasattr(powl, "_g"):
         for child in powl._g.nodes:
