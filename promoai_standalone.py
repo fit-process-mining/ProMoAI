@@ -21,6 +21,8 @@ from promoai.general_utils.ai_providers import (
     MAIN_HELP,
 )
 from promoai.general_utils.app_utils import DISCOVERY_HELP, InputType, ViewType
+from promoai.general_utils.llm_connection import LLMConnection
+from rule_discovery_page import render_rule_based_discovery
 
 
 def run_model_generator_app():
@@ -74,7 +76,12 @@ def run_app():
 
     input_type = st.radio(
         "Select Input Type:",
-        options=[InputType.TEXT.value, InputType.MODEL.value, InputType.DATA.value],
+        options=[
+            InputType.TEXT.value,
+            InputType.MODEL.value,
+            InputType.DATA.value,
+            InputType.RULES.value,
+        ],
         horizontal=True,
     )
 
@@ -84,125 +91,137 @@ def run_app():
         st.session_state["feedback"] = []
         st.rerun()
 
-    with st.form(key="model_gen_form"):
-        if input_type == InputType.TEXT.value:
-            description = st.text_area(
-                "For **process modeling**, enter the process description:"
+    if input_type == InputType.RULES.value:
+        if api_key.strip():
+            st.session_state["llm_credentials"] = LLMConnection(
+                api_key=api_key,
+                llm_name=ai_model_name,
+                ai_provider=provider,
+                args={},
             )
+        else:
+            st.session_state.pop("llm_credentials", None)
+        render_rule_based_discovery()
+    else:
+        with st.form(key="model_gen_form"):
+            if input_type == InputType.TEXT.value:
+                description = st.text_area(
+                    "For **process modeling**, enter the process description:"
+                )
 
-            submit_button = st.form_submit_button(label="Run")
-            if submit_button:
-                try:
-                    process_model = promoai.generate_model_from_text(
-                        description,
-                        api_key=api_key,
-                        ai_model=ai_model_name,
-                        ai_provider=provider,
-                    )
-
-                    st.session_state["model_gen"] = process_model
-                    st.session_state["feedback"] = []
-
-                except Exception as e:
-                    st.error(body=str(e), icon="⚠️")
-                    return
-        elif input_type == InputType.DATA.value:
-            uploaded_log = st.file_uploader(
-                "For **process model discovery**, upload an event log:",
-                type=["xes", "gz"],
-                help=DISCOVERY_HELP,
-            )
-
-            threshold = st.number_input(
-                label="Noise Filtering Threshold (0.0 = No Filtering)",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.0,
-                step=0.01,
-            )
-
-            submit_button = st.form_submit_button(label="Run")
-            if submit_button:
-                if uploaded_log is None:
-                    st.error(body="No file is selected!", icon="⚠️")
-                    return
-                try:
-                    contents = uploaded_log.read()
-                    os.makedirs(temp_dir, exist_ok=True)
-                    with tempfile.NamedTemporaryFile(
-                        mode="wb", delete=False, dir=temp_dir, suffix=uploaded_log.name
-                    ) as temp_file:
-                        temp_file.write(contents)
-                        log = import_event_log(temp_file.name)
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-
-                    process_model = promoai.generate_model_from_event_log(
-                        log, threshold
-                    )
-
-                    st.session_state["model_gen"] = process_model
-                    st.session_state["feedback"] = []
-                except Exception as e:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    st.error(body=f"Error during discovery: {e}", icon="⚠️")
-                    return
-        elif input_type == InputType.MODEL.value:
-            uploaded_file = st.file_uploader(
-                "For **process model improvement**, upload a semi-block-structured BPMN or Petri net:",
-                type=["bpmn", "pnml"],
-            )
-            submit_button = st.form_submit_button(label="Upload")
-            if submit_button:
-                if uploaded_file is None:
-                    st.error(body="No file is selected!", icon="⚠️")
-                    return
-                else:
+                submit_button = st.form_submit_button(label="Run")
+                if submit_button:
                     try:
-                        file_extension = uploaded_file.name.split(".")[-1].lower()
+                        process_model = promoai.generate_model_from_text(
+                            description,
+                            api_key=api_key,
+                            ai_model=ai_model_name,
+                            ai_provider=provider,
+                        )
 
-                        if file_extension == "bpmn":
-                            contents = uploaded_file.read()
+                        st.session_state["model_gen"] = process_model
+                        st.session_state["feedback"] = []
 
-                            os.makedirs(temp_dir, exist_ok=True)
-                            with tempfile.NamedTemporaryFile(
-                                mode="wb", delete=False, suffix=".bpmn", dir=temp_dir
-                            ) as temp_file:
-                                temp_file.write(contents)
+                    except Exception as e:
+                        st.error(body=str(e), icon="⚠️")
+                        return
+            elif input_type == InputType.DATA.value:
+                uploaded_log = st.file_uploader(
+                    "For **process model discovery**, upload an event log:",
+                    type=["xes", "gz"],
+                    help=DISCOVERY_HELP,
+                )
 
-                            bpmn_graph = read_bpmn(temp_file.name)
-                            process_model = promoai.generate_model_from_bpmn(bpmn_graph)
-                            shutil.rmtree(temp_dir, ignore_errors=True)
+                threshold = st.number_input(
+                    label="Noise Filtering Threshold (0.0 = No Filtering)",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.0,
+                    step=0.01,
+                )
 
-                        elif file_extension == "pnml":
-                            contents = uploaded_file.read()
+                submit_button = st.form_submit_button(label="Run")
+                if submit_button:
+                    if uploaded_log is None:
+                        st.error(body="No file is selected!", icon="⚠️")
+                        return
+                    try:
+                        contents = uploaded_log.read()
+                        os.makedirs(temp_dir, exist_ok=True)
+                        with tempfile.NamedTemporaryFile(
+                            mode="wb", delete=False, dir=temp_dir, suffix=uploaded_log.name
+                        ) as temp_file:
+                            temp_file.write(contents)
+                            log = import_event_log(temp_file.name)
+                        shutil.rmtree(temp_dir, ignore_errors=True)
 
-                            os.makedirs(temp_dir, exist_ok=True)
-                            with tempfile.NamedTemporaryFile(
-                                mode="wb", delete=False, suffix=".pnml", dir=temp_dir
-                            ) as temp_file:
-                                temp_file.write(contents)
-                            pn, im, fm = read_pnml(temp_file.name)
-                            process_model = promoai.generate_model_from_petri_net(pn)
-
-                            shutil.rmtree(temp_dir, ignore_errors=True)
-
-                        else:
-                            st.error(
-                                body=f"Unsupported file format {file_extension}!",
-                                icon="⚠️",
-                            )
-                            return
+                        process_model = promoai.generate_model_from_event_log(
+                            log, threshold
+                        )
 
                         st.session_state["model_gen"] = process_model
                         st.session_state["feedback"] = []
                     except Exception as e:
-                        if os.path.exists(temp_dir):
-                            shutil.rmtree(temp_dir, ignore_errors=True)
-                        st.error(
-                            body=f"Please upload a semi-block-structured model! The error message: {e}",
-                            icon="⚠️",
-                        )
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        st.error(body=f"Error during discovery: {e}", icon="⚠️")
                         return
+            elif input_type == InputType.MODEL.value:
+                uploaded_file = st.file_uploader(
+                    "For **process model improvement**, upload a semi-block-structured BPMN or Petri net:",
+                    type=["bpmn", "pnml"],
+                )
+                submit_button = st.form_submit_button(label="Upload")
+                if submit_button:
+                    if uploaded_file is None:
+                        st.error(body="No file is selected!", icon="⚠️")
+                        return
+                    else:
+                        try:
+                            file_extension = uploaded_file.name.split(".")[-1].lower()
+
+                            if file_extension == "bpmn":
+                                contents = uploaded_file.read()
+
+                                os.makedirs(temp_dir, exist_ok=True)
+                                with tempfile.NamedTemporaryFile(
+                                    mode="wb", delete=False, suffix=".bpmn", dir=temp_dir
+                                ) as temp_file:
+                                    temp_file.write(contents)
+
+                                bpmn_graph = read_bpmn(temp_file.name)
+                                process_model = promoai.generate_model_from_bpmn(bpmn_graph)
+                                shutil.rmtree(temp_dir, ignore_errors=True)
+
+                            elif file_extension == "pnml":
+                                contents = uploaded_file.read()
+
+                                os.makedirs(temp_dir, exist_ok=True)
+                                with tempfile.NamedTemporaryFile(
+                                    mode="wb", delete=False, suffix=".pnml", dir=temp_dir
+                                ) as temp_file:
+                                    temp_file.write(contents)
+                                pn, im, fm = read_pnml(temp_file.name)
+                                process_model = promoai.generate_model_from_petri_net(pn)
+
+                                shutil.rmtree(temp_dir, ignore_errors=True)
+
+                            else:
+                                st.error(
+                                    body=f"Unsupported file format {file_extension}!",
+                                    icon="⚠️",
+                                )
+                                return
+
+                            st.session_state["model_gen"] = process_model
+                            st.session_state["feedback"] = []
+                        except Exception as e:
+                            if os.path.exists(temp_dir):
+                                shutil.rmtree(temp_dir, ignore_errors=True)
+                            st.error(
+                                body=f"Please upload a semi-block-structured model! The error message: {e}",
+                                icon="⚠️",
+                            )
+                            return
 
     if "model_gen" in st.session_state and st.session_state["model_gen"]:
 
@@ -222,6 +241,11 @@ def run_app():
                                 api_key=api_key,
                                 ai_model=ai_model_name,
                                 ai_provider=provider,
+                                required_rules=(
+                                    st.session_state.get("rules_enforced")
+                                    if input_type == InputType.RULES.value
+                                    else None
+                                ),
                             )
                             st.session_state["model_gen"] = process_model
                         except Exception as e:

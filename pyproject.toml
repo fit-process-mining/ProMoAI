@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = 'promoai'
 description = "ProMoAI: Process Modeling with Generative AI"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { file = "LICENSE.txt" }
 authors = [
   { name = "Humam Kourani", email = "humam.kourani@fit.fraunhofer.de" },
