@@ -18,6 +18,7 @@ The suite consists of two primary modules:
 - **Text-to-Model:** Generate BPMN or PNML models from natural language descriptions.
 - **Model Refinement:** Upload an existing BPMN or Petri net and use AI to modify or extend it via chat.
 - **Discovery Baseline:** Start with an XES event log to discover an initial model, then refine it using the LLM.
+- **Rule-Based POWL Discovery:** Extract DECLARE constraints from a process description or enter them manually, inspect their empirical support and confidence, select rules, and discover a rule-constrained POWL model using event-, trace-, or edit-distance repair.
 
 ### 2. PMAx: Agentic Process Mining (New!)
 
@@ -44,10 +45,6 @@ Access the unified suite directly at: [https://promoai.streamlit.app/](https://p
   ```bash
   streamlit run app.py
   ```
-- **Standalone ProMoAI (Legacy Interface):**
-  ```bash
-  streamlit run promoai_standalone.py
-  ```
 
 ### Installation as Python Library:
 
@@ -59,7 +56,7 @@ pip install promoai
 
 ## Requirements
 
-- _Environment:_ the app is tested on both Python 3.9 and 3.10.
+- _Environment:_ Python 3.11 or newer is required by POWL.
 - _Dependencies:_ all required dependencies are listed in the file 'requirements.txt'.
 - _Packages:_ all required packages are listed in the file 'packages.txt'.
 

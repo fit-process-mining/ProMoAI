@@ -5,6 +5,7 @@ class InputType(Enum):
     TEXT = "Text"
     MODEL = "Model"
     DATA = "Data"
+    RULES = "Rules"
 
 
 class ViewType(Enum):

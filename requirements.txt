@@ -10,7 +10,7 @@ pandas
 pillow
 plotly
 pm4py
-powl>=2.3.4
+powl>=2.3.9
 requests
 rustxes
 seaborn

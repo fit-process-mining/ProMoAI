@@ -1,7 +1,5 @@
 import os
 import subprocess
-import tempfile
-from pathlib import Path
 
 import promoai
 import streamlit as st
@@ -15,7 +13,8 @@ from pm4py.visualization.petri_net import visualizer as pn_visualizer
 from powl import convert_to_bpmn, import_event_log
 from powl.conversion.variants.to_petri_net import apply as convert_to_petri_net
 from promoai.general_utils.app_utils import InputType
-from promoai.general_utils.artifact_store import get_staging_dir
+from promoai.general_utils.upload_utils import write_uploaded_file_to_staging
+from rule_discovery_page import render_rule_based_discovery
 
 
 def get_model_svg(model_obj, view_type):
@@ -48,16 +47,6 @@ def get_model_svg(model_obj, view_type):
 
 def run_model_generator_app():
     subprocess.run(["streamlit", "run", __file__])
-
-
-def write_uploaded_file_to_staging(uploaded_file, suffix: str | None = None) -> str:
-    staging_dir = get_staging_dir("promoai_uploads")
-    file_suffix = suffix or "".join(Path(uploaded_file.name).suffixes).lower() or ".bin"
-    with tempfile.NamedTemporaryFile(
-        mode="wb", delete=False, dir=staging_dir, suffix=file_suffix
-    ) as temp_file:
-        temp_file.write(uploaded_file.read())
-        return temp_file.name
 
 
 def render_submission_form(input_type):
@@ -214,6 +203,7 @@ def run_page():
 
     input_type = st.segmented_control(
         "Select Input Type:",
+        # options=["Text", "Model", "Data", "Rules"],
         options=["Text", "Model", "Data"],
         selection_mode="single",
         default="Text",
@@ -224,7 +214,9 @@ def run_page():
         st.session_state["model_gen"] = None
         st.session_state["feedback"] = []
         st.rerun()
-    if not has_model:
+    if input_type == InputType.RULES.value:
+        render_rule_based_discovery()
+    elif not has_model:
         with st.form(key="model_gen_form"):
             render_submission_form(input_type)
     else:
@@ -297,15 +289,25 @@ def run_page():
                 else:
                     with st.spinner("Re-modeling..."):
                         process_model = st.session_state["model_gen"]
-                        process_model.update(
-                            feedback_input,
-                            api_key=st.session_state["llm_credentials"].api_key,
-                            ai_model=st.session_state["llm_credentials"].llm_name,
-                            ai_provider=st.session_state["llm_credentials"].ai_provider,
-                        )
-                        st.session_state["feedback"].append(feedback_input)
-                        st.session_state["just_updated"] = True
-                        st.rerun()
+                        try:
+                            process_model.update(
+                                feedback_input,
+                                api_key=st.session_state["llm_credentials"].api_key,
+                                ai_model=st.session_state["llm_credentials"].llm_name,
+                                ai_provider=st.session_state["llm_credentials"].ai_provider,
+                                llm_args=st.session_state["llm_credentials"].args,
+                                required_rules=(
+                                    st.session_state.get("rules_enforced")
+                                    if input_type == InputType.RULES.value
+                                    else None
+                                ),
+                            )
+                        except Exception as exc:
+                            st.error(f"Model refinement failed: {exc}")
+                        else:
+                            st.session_state["feedback"].append(feedback_input)
+                            st.session_state["just_updated"] = True
+                            st.rerun()
 
         # History
         if st.session_state["feedback"]:

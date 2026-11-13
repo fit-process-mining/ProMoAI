@@ -87,20 +87,27 @@ class LLMProcessModelGenerator:
         ai_model: str,
         ai_provider: str,
         llm_args: dict = None,
+        required_rules=None,
     ):
         effective_llm_args = dict(self.llm_args)
         if llm_args:
             effective_llm_args.update(llm_args)
         if effective_llm_args:
             effective_llm_args = self._ensure_trace_args(effective_llm_args)
-        self.conversation = update_conversation(self.conversation, feedback)
-        code, self.process_model, self.conversation = generate_model(
-            conversation=self.conversation,
+        proposed_conversation = update_conversation(list(self.conversation), feedback)
+        code, proposed_model, proposed_conversation = generate_model(
+            conversation=proposed_conversation,
             api_key=api_key,
             llm_name=ai_model,
             ai_provider=ai_provider,
             llm_args=effective_llm_args or None,
         )
+        if required_rules:
+            from powl.discovery.rule_based.conformance import assert_model_satisfies_rules
+
+            assert_model_satisfies_rules(proposed_model, required_rules)
+        self.process_model = proposed_model
+        self.conversation = proposed_conversation
         self.llm_args = effective_llm_args
 
     def view_bpmn(self, image_format: str = "svg"):
