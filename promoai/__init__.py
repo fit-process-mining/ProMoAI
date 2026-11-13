@@ -2,7 +2,7 @@ from promoai.general_utils.ai_providers import AIProviders
 from promoai.general_utils.app_utils import InputType
 
 __name__ = "promoai"
-__version__ = "2.2.2"
+__version__ = "2.2.3"
 
 
 def generate_model_from_text(*args, **kwargs):
