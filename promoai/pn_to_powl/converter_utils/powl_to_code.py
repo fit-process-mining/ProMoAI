@@ -1,92 +1,91 @@
-from powl.objects.tagged_powl import Activity, ChoiceGraph, PartialOrder
+"""Serialize native POWL models into the safe ModelGenerator language."""
 
-from powl.objects.tagged_powl.choice_graph import _ChoiceGraphEnd, _ChoiceGraphStart
+from powl.objects.tagged_powl import Activity, ChoiceGraph, PartialOrder, TaggedPOWL
 
 from promoai.prompting.prompt_engineering import import_statement
 
 
-def translate_powl_to_code(powl_obj):
-    """
-    Translates a POWL object from pm4py into code using ModelGenerator.
+def translate_powl_to_code(powl_obj: TaggedPOWL) -> str:
+    """Return model construction code preserving behavior, resources and metadata.
 
-    Args:
-        powl_obj: The POWL object to translate.
-
-    Returns:
-        A string containing the Python code that constructs the equivalent POWL model using ModelGenerator.
+    Labels are serialized as Python literals, including quotes and newlines.
+    Frequency tags supported by POWL JSON (optional and unbounded repetition)
+    are preserved. Unsupported bounded frequency ranges fail explicitly instead
+    of silently changing the process. Input models are never mutated.
     """
     code_lines = [import_statement, "gen = ModelGenerator()"]
+    counter = 0
+    ancestors: set[int] = set()
 
-    var_counter = [0]
+    def name():
+        nonlocal counter
+        variable = f"var_{counter}"
+        counter += 1
+        return variable
 
-    def get_new_var_name():
-        var_name = f"var_{var_counter[0]}"
-        var_counter[0] += 1
-        return var_name
-
-    def process_powl(powl):
-        if isinstance(powl, Activity):
-            var_name = get_new_var_name()
-            if powl.label is None:
-                code_lines.append(f"{var_name} = None")
-            else:
-                label = powl.label
-                if powl.organization is not None and powl.role is not None:
-                    code_lines.append(
-                        f"{var_name} = gen.activity('{label}', pool='{powl.organization}',  lane='{powl.role}')"
-                    )
-                else:
-                    code_lines.append(f"{var_name} = gen.activity('{label}')")
-            return var_name
-
-        elif isinstance(powl, _ChoiceGraphEnd) or isinstance(powl, _ChoiceGraphStart):
-            return None
-
-        elif isinstance(powl, PartialOrder) or isinstance(powl, ChoiceGraph):
-            nodes = powl._g.nodes
-            if isinstance(powl, PartialOrder):
-                order = powl.transitive_reduction()
-            elif isinstance(powl, ChoiceGraph):
-                order = powl
-            else:
-                raise Exception("Unknown POWL object! This should not be possible!")
-            node_var_map = {node: process_powl(node) for node in nodes}
+    def emit(node: TaggedPOWL) -> str:
+        if id(node) in ancestors:
+            raise ValueError("A POWL model cannot contain itself as a submodel.")
+        if not isinstance(node, TaggedPOWL):
+            raise TypeError(f"Expected a native POWL model, found {type(node).__name__}.")
+        if node.min_freq not in (0, 1) or node.max_freq not in (1, None):
+            raise ValueError("ModelGenerator code supports min_freq 0/1 and max_freq 1/None.")
+        ancestors.add(id(node))
+        if isinstance(node, Activity):
+            variable = name()
+            arguments = [repr(node.label)]
+            if node.organization is not None:
+                arguments.append(f"pool={node.organization!r}")
+            if node.role is not None:
+                arguments.append(f"lane={node.role!r}")
+            code_lines.append(f"{variable} = gen.activity({', '.join(arguments)})")
+        elif isinstance(node, (PartialOrder, ChoiceGraph)):
+            children = node.children
+            if not children:
+                raise ValueError("Cannot serialize a composite model with no children.")
+            variables = {child: emit(child) for child in children}
             dependencies = []
-            nodes_in_edges = set()
-            # to make it robust against PartialOrders and ChoiceGraphs
-            edge_checker = (
-                order.is_edge if hasattr(order, "is_edge") else order.has_edge
-            )
-            for source in nodes:
-                for target in nodes:
-                    source_var = node_var_map[source]
-                    target_var = node_var_map[target]
-                    if edge_checker(source, target):
-                        dependencies.append(f"({source_var}, {target_var})")
-                        nodes_in_edges.update([source, target])
-
-            if isinstance(powl, PartialOrder):
-                # Include nodes not in any edge as singleton tuples
-                for node in nodes:
-                    if node not in nodes_in_edges:
-                        var = node_var_map[node]
-                        dependencies.append(f"({var},)")
-
-            dep_str = ", ".join(dependencies)
-            var_name = get_new_var_name()
-            code_lines.append(
-                f"{var_name} = gen.partial_order(dependencies=[{dep_str}])"
-            ) if isinstance(powl, PartialOrder) else code_lines.append(
-                f"{var_name} = gen.decision_graph(dependencies=[{dep_str}])"
-            )
-            return var_name
-
+            if isinstance(node, PartialOrder):
+                graph = node.transitive_reduction()
+                for source in children:
+                    for target in children:
+                        if graph.has_edge(source, target):
+                            dependencies.append(f"({variables[source]}, {variables[target]})")
+                    if graph.degree(source) == 0:
+                        dependencies.append(f"({variables[source]},)")
+                method = "partial_order"
+            else:
+                node.validate_connectivity()
+                starts, ends = node.start_nodes(), node.end_nodes()
+                for child in children:
+                    if child in starts:
+                        dependencies.append(f"(None, {variables[child]})")
+                for source in children:
+                    for target in children:
+                        if node.is_edge(source, target):
+                            dependencies.append(f"({variables[source]}, {variables[target]})")
+                for child in children:
+                    if child in ends:
+                        dependencies.append(f"({variables[child]}, None)")
+                method = "decision_graph"
+            variable = name()
+            code_lines.append(f"{variable} = gen.{method}(dependencies=[{', '.join(dependencies)}])")
         else:
-            raise Exception(
-                f"Unknown POWL object {type(powl)}! This should not be possible!"
-            )
+            raise TypeError(f"Unsupported POWL model: {type(node).__name__}.")
+        if node.min_freq == 0:
+            code_lines.append(f"{variable} = gen.skip({variable})")
+        if node.max_freq is None:
+            code_lines.append(f"{variable} = gen.self_loop({variable})")
+        if node.attributes:
+            # Validate the supported JSON annotations on a detached value.
+            from promoai.model_generation.generator import ModelGenerator
 
-    final_var = process_powl(powl_obj)
-    code_lines.append(f"final_model = {final_var}")
+            placeholder = Activity() if isinstance(node, Activity) else PartialOrder()
+            ModelGenerator().annotate(placeholder, **node.attributes)
+            kwargs = ", ".join(f"{key}={value!r}" for key, value in sorted(node.attributes.items()))
+            code_lines.append(f"{variable} = gen.annotate({variable}, {kwargs})")
+        ancestors.remove(id(node))
+        return variable
 
+    code_lines.append(f"final_model = {emit(powl_obj)}")
     return "\n".join(code_lines)

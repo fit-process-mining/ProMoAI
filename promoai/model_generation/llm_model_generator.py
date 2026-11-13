@@ -65,11 +65,6 @@ class LLMProcessModelGenerator:
     def get_conversation(self):
         return self.conversation
 
-    def get_code(self):
-        return code_extraction.extract_final_python_code(
-            self.conversation[-1]["content"]
-        )
-
     def get_powl(self):
         return self.process_model
 

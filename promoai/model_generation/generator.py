@@ -1,4 +1,5 @@
 from copy import deepcopy
+import math
 
 from powl.objects.tagged_powl import Activity, ChoiceGraph, PartialOrder
 
@@ -30,7 +31,31 @@ class ModelGenerator:
         self.nested_decision_graphs = enable_nested_decision_graphs
 
     def activity(self, label, pool: str = None, lane: str = None):
+        if any(value is not None and not isinstance(value, str) for value in (pool, lane)):
+            raise ValueError("Pool and lane must be strings or None.")
         return Activity(label, organization=pool, role=lane)
+
+    def annotate(self, node: TaggedPOWL, **attributes):
+        """Preserve supported POWL JSON annotations in model-code round trips."""
+        if not isinstance(node, TaggedPOWL):
+            raise TypeError("Only POWL models can be annotated.")
+        allowed = {"name", "description"}
+        if isinstance(node, Activity):
+            allowed.update({"resource", "role", "cost", "lifecycle"})
+        if set(attributes) - allowed:
+            raise ValueError("Unsupported POWL annotation.")
+        for key, value in attributes.items():
+            if key == "cost":
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                    raise ValueError("Cost must be a finite nonnegative number.")
+            elif not isinstance(value, str):
+                raise ValueError(f"{key} must be a string.")
+        node.attributes.update(attributes)
+        if "resource" in attributes:
+            node.organization = attributes["resource"]
+        if "role" in attributes:
+            node.role = attributes["role"]
+        return node
 
     def silent_transition(self):
         return silent_activity()
