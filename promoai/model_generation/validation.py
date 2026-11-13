@@ -10,11 +10,10 @@ def validate_resource_structure(powl: TaggedPOWL):
     while children_to_check:
         current_node = children_to_check.pop()
         if hasattr(current_node, "organization"):
-            identified_pools.add(current_node.pool)
+            identified_pools.add(current_node.organization)
         if hasattr(current_node, "role"):
-            identified_lanes.add(current_node.lane)
-        if hasattr(current_node, "nodes"):
-            children_to_check.extend(list(current_node.nodes))
+            identified_lanes.add(current_node.role)
+        children_to_check.extend(getattr(current_node, "children", ()))
     if None in identified_pools and len(identified_pools) > 1:
         raise Exception(
             "Invalid resource structure: None pool used alongside identified pools."
@@ -31,8 +30,8 @@ def validate_partial_orders_with_missing_transitive_edges(powl: TaggedPOWL):
             powl.validate()
         except Exception:
             raise Exception("A partial order must be a DAG!")
-    if hasattr(powl, "_g"):
-        for child in powl._g.nodes:
+    if hasattr(powl, "children"):
+        for child in powl.children:
             validate_partial_orders_with_missing_transitive_edges(child)
 
 
@@ -54,9 +53,9 @@ def validate_unique_transitions(
         if isinstance(node, Activity):
             return [node]
 
-        elif hasattr(node, "_g"):
+        elif hasattr(node, "children"):
             leaves = []
-            for child in node._g.nodes:
+            for child in node.children:
                 leaves = leaves + _collect_leaves(child)
             return leaves
         else:
