@@ -166,16 +166,22 @@ def parse_declare_rules(
     response: str, activities: Iterable[str] | None = None
 ) -> tuple[str, list[AbstractRule]]:
     """Parse rule assignments without executing model-generated Python code."""
+    if not isinstance(response, str) or len(response.encode("utf-8")) > 128_000:
+        raise ValueError("DECLARE response exceeds the source size limit.")
     code = _code_from_response(response)
     if not code:
         raise ValueError("No DECLARE rules were provided.")
 
+    if isinstance(activities, (str, bytes)):
+        raise ValueError("Activities must be a list of exact activity labels.")
     allowed = set(activities) if activities is not None else None
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
         raise ValueError(f"Invalid DECLARE syntax on line {exc.lineno}: {exc.msg}.") from exc
 
+    if len(tree.body) > 500 or sum(1 for _ in ast.walk(tree)) > 8_000:
+        raise ValueError("DECLARE response exceeds the rule count or syntax size limit.")
     parsed: list[AbstractRule] = []
     variable_names: set[str] = set()
     for statement in tree.body:
