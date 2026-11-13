@@ -203,7 +203,8 @@ def run_page():
 
     input_type = st.segmented_control(
         "Select Input Type:",
-        options=["Text", "Model", "Data", "Rules"],
+        # options=["Text", "Model", "Data", "Rules"],
+        options=["Text", "Model", "Data"],
         selection_mode="single",
         default="Text",
     )
