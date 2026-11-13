@@ -45,38 +45,6 @@ Access the unified suite directly at: [https://promoai.streamlit.app/](https://p
   ```bash
   streamlit run app.py
   ```
-- **Standalone ProMoAI (Legacy Interface):**
-  ```bash
-  streamlit run promoai_standalone.py
-  ```
-
-### Rule-based discovery
-
-Open **ProMoAI → Rules** in the unified app (or select **Rules** in the standalone app). Upload an XES, compressed XES, or CSV event log and check the case ID, activity, and optional timestamp columns. Describe the constraints in natural language and click **Extract rules from description**, or paste rule assignments directly into the editor. Rule extraction requires an LLM connection configured on the Setup page; manually supplied rules do not.
-
-After applying rules, inspect per-rule support, confidence, activation counts, and violations, select the rules to enforce, and choose a repair strategy and noise threshold. **Discover rule-constrained model** calls the rule-aware POWL miner with final rule verification enabled. The resulting model can be viewed and exported through the existing BPMN, Petri net, and POWL tabs. LLM edits to rule-constrained models are checked against the selected rules before replacing the existing model.
-
-The supported templates are `AtMostOnce`, `Init`, `End`, `Existence`, `CoExistence`, `NotCoExistence`, `NotSuccession`, `Precedence`, `ChainPrecedence`, `RespondedExistence`, `Response`, and `ChainResponse`.
-
-```python
-import promoai
-from powl.discovery.rule_based import InitializationRule, ResponseRule
-
-event_log = [["Register", "Close"], ["Register", "Close"]]
-rules = [InitializationRule("Register"), ResponseRule("Register", "Close")]
-metrics = promoai.validate_event_log_rules(event_log, rules)
-model = promoai.generate_model_from_event_log_with_rules(
-    event_log,
-    rules,
-    repair_mode="event_level",
-    noise_threshold=0.0,
-)
-powl_model = model.get_powl()
-```
-
-To extract rules from text in Python, use `promoai.generate_rules_from_text(description, activities, api_key, ai_model, ai_provider)`. You can also parse supplied rule assignments without an LLM using `promoai.prompting.declarative_rules.parse_declare_rules(code, activities)`.
-
-Rule-based discovery requires `powl>=2.3.8` and Python 3.11 or newer.
 
 ### Installation as Python Library:
 
